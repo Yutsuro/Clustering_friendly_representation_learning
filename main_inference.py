@@ -16,6 +16,9 @@ from torchvision import datasets, transforms
 from torchvision.models import resnet
 
 
+from torch2trt import TRTModule
+
+
 def parse():
     parser = argparse.ArgumentParser()
     parser.add_argument("-g", "--gpus", type=str, default="")
@@ -48,6 +51,8 @@ def inference(model_path,batch_size):
                                                shuffle=False,
                                                pin_memory=True,
                                                num_workers=args.num_workers)
+    
+    print(test_set.data.shape)
 
     # モデルの定義
     low_dim = 128
@@ -57,6 +62,7 @@ def inference(model_path,batch_size):
     net, norm = net.to(device), norm.to(device)
 
     # 重みのロード
+    #net = TRTModule()
     net.load_state_dict(torch.load(model_path))
 
     print("バッチサイズ:{}".format(batch_size))
@@ -81,6 +87,8 @@ def inference(model_path,batch_size):
     
     features_buffer = torch.cat(features_buffer,dim=0)
     targets = test_loader.dataset.targets
+    targets = targets[0:8192]
+    print(len(targets))
     acc, nmi, ari =  calc_clustering_metrics(features_buffer, targets)
     
     clustering_time = time.time() - inference_time
@@ -89,12 +97,17 @@ def inference(model_path,batch_size):
     total_time = time.time() - start
     print("トータルの実行時間:{}".format(total_time) + "[秒]\n")
     print("ACC:{} NMI:{} ARI:{}".format(acc,nmi,ari))
+    
+    return (inference_time - start), clustering_time, total_time
 
 
 class CIFAR10(datasets.CIFAR10):
     def __getitem__(self, index):
         img, target = super().__getitem__(index)
         return img, target, index
+    
+    def __len__(self):
+        return 8192
 
 
 class metrics:
@@ -144,6 +157,23 @@ def ResNet18(low_dim=128):
 
 if __name__=="__main__":
     model_path = "idfd_epoch_1999.pth"
+    model_trt = "IDFD_trt.pth"
+    batch_list = [64,128,256,512]
+    # batch_list = [1024,2048]
+    
+    inference(model_path,batch_size=512)
 
-    # 推論
-    inference(model_path,batch_size=2048)
+#     # 推論
+#     for batch_size in batch_list:
+#         inf = []
+#         clu = []
+#         tot = []
+#         for _ in range(3):
+#             inference_time, clustering_time, total_time = inference(model_path,batch_size=batch_size)
+#             inf.append(inference_time)
+#             clu.append(clustering_time)
+#             tot.append(total_time)
+        
+#         print("バッチサイズ{}の時の推論時間の平均:{}".format(batch_size,np.mean(inf)))
+#         print("バッチサイズ{}の時のクラスタリング時間の平均:{}".format(batch_size,np.mean(clu)))
+#         print("バッチサイズ{}の時の全体実行時間の平均:{}".format(batch_size,np.mean(tot)))
